@@ -69,6 +69,27 @@ df_latest = df[df["year"] == latest_year].copy()
 print("Using year:", latest_year)
 
 # ==========================================
+# ENERGY EQUITY SCORE (NEW)
+# ==========================================
+
+# Normalize electricity consumption (0–100 scale)
+df_latest["electricity_norm"] = (
+    df_latest["electricity"] / df_latest["electricity"].max()
+) * 100
+
+# Energy Equity Score (balanced metric)
+df_latest["energy_equity_score"] = (
+    df_latest["access"] * 0.6 +
+    df_latest["electricity_norm"] * 0.4
+)
+# ✅ TEMP DEBUG (PUT IT HERE)
+print(df_latest[[
+    "country_name",
+    "access",
+    "electricity",
+    "energy_equity_score"
+]].head())
+# ==========================================
 # ================= ANALYSIS 1 =============
 # Energy Gap
 # ==========================================
@@ -194,14 +215,11 @@ top_low_losses = df_latest.sort_values(
 ]
 
 # ==========================================
-# ================= ANALYSIS 4 =============
-# GDP vs Energy Efficiency (Losses)
+# GDP vs Energy Efficiency (A+ VERSION)
 # ==========================================
 
-# Remove rows where GDP or losses missing
 df_gdp = df_latest.dropna(subset=["gdp_per_capita", "losses"]).copy()
 
-# Optional: create GDP groups (A+ level)
 def gdp_group(x):
     if x < 5000:
         return "Low Income"
@@ -212,34 +230,72 @@ def gdp_group(x):
 
 df_gdp["gdp_group"] = df_gdp["gdp_per_capita"].apply(gdp_group)
 
-# Scatter plot
+# 🔥 A+ SCATTER WITH TRENDLINE
 fig_gdp_losses = px.scatter(
     df_gdp,
     x="gdp_per_capita",
     y="losses",
     color="gdp_group",
     hover_name="country_name",
-    title="GDP per Capita vs Transmission Losses (Energy Efficiency)",
-    log_x=True   # 🔥 A+ upgrade
+    title="GDP per Capita vs Transmission Losses",
+    log_x=True,
+    trendline="ols"   # ⭐ THIS IS KEY FOR A+
 )
 
-# Correlation (for report)
+# Correlation
 gdp_loss_corr = df_gdp["gdp_per_capita"].corr(df_gdp["losses"])
 
-# Top inefficient countries (high losses)
-top_inefficient = df_gdp.sort_values(
-    "losses", ascending=False
+# KPIs
+avg_loss = df_gdp["losses"].mean()
+avg_gdp = df_gdp["gdp_per_capita"].mean()
+
+top_inefficient = df_gdp.sort_values("losses", ascending=False).head(10)
+top_efficient = df_gdp.sort_values("losses", ascending=True).head(10)
+
+# ==========================================
+# ================= ANALYSIS 5 =============
+# Energy Equity vs GDP
+# ==========================================
+
+# Remove missing values
+df_equity = df_latest.dropna(subset=["gdp_per_capita", "energy_equity_score"]).copy()
+
+# GDP grouping (reuse logic if already exists)
+def gdp_group(x):
+    if x < 5000:
+        return "Low Income"
+    elif x < 20000:
+        return "Middle Income"
+    else:
+        return "High Income"
+
+df_equity["gdp_group"] = df_equity["gdp_per_capita"].apply(gdp_group)
+
+# 🔥 MAIN VISUAL
+fig_equity = px.scatter(
+    df_equity,
+    x="gdp_per_capita",
+    y="energy_equity_score",
+    color="gdp_group",
+    hover_name="country_name",
+    title="GDP vs Energy Equity",
+    log_x=True,
+    trendline="ols"
+)
+
+# Top performers
+top_equity = df_equity.sort_values(
+    "energy_equity_score", ascending=False
 ).head(10)[
-    ["country_name", "gdp_per_capita", "losses"]
+    ["country_name", "gdp_per_capita", "energy_equity_score"]
 ]
 
-# Top efficient countries (low losses)
-top_efficient = df_gdp.sort_values(
-    "losses", ascending=True
+# Lowest performers
+low_equity = df_equity.sort_values(
+    "energy_equity_score", ascending=True
 ).head(10)[
-    ["country_name", "gdp_per_capita", "losses"]
+    ["country_name", "gdp_per_capita", "energy_equity_score"]
 ]
-
 # ==========================================
 # EXPORT FOR STREAMLIT
 # ==========================================
@@ -260,6 +316,12 @@ analysis_results = {
     
     "gdp_losses_fig": fig_gdp_losses,
     "gdp_loss_corr": gdp_loss_corr,
+    "avg_loss": avg_loss,
+    "avg_gdp": avg_gdp,
     "top_inefficient": top_inefficient,
-    "top_efficient": top_efficient
+    "top_efficient": top_efficient,
+    
+    "equity_fig": fig_equity,
+    "top_equity": top_equity,
+    "low_equity": low_equity
 }

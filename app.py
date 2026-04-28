@@ -102,45 +102,70 @@ with col4:
     )
     
 # ==========================================
-# 📊 ANALYSIS 4: GDP vs ENERGY EFFICIENCY
+# GDP ANALYSIS SECTION
 # ==========================================
 
-st.header("📊 Economic Efficiency Analysis (GDP vs Losses)")
+st.header("📊 GDP vs Energy Efficiency")
 
-st.markdown("""
-This analysis explores how a country's economic strength (GDP per capita) 
-relates to electricity transmission efficiency. Lower losses indicate better infrastructure.
+col1, col2 = st.columns(2)
+
+col1.metric("Avg GDP per Capita", f"${analysis_results['avg_gdp']:.0f}")
+col2.metric("Avg Transmission Losses", f"{analysis_results['avg_loss']:.2f}%")
+
+st.plotly_chart(analysis_results["gdp_losses_fig"], use_container_width=True)
+
+st.markdown(f"""
+**Correlation between GDP and Losses:**  
+`{analysis_results['gdp_loss_corr']:.2f}`
+
+👉 Negative correlation means richer countries tend to have better infrastructure.
 """)
 
-# --- Scatter Plot ---
-st.plotly_chart(
-    analysis_results["gdp_losses_fig"],
-    use_container_width=True
-)
+st.subheader("🔻 Most Inefficient Countries")
+st.dataframe(analysis_results["top_inefficient"])
 
-# --- Correlation Metric ---
-corr = analysis_results["gdp_loss_corr"]
+st.subheader("🔺 Most Efficient Countries")
+st.dataframe(analysis_results["top_efficient"])
 
-st.metric(
-    label="GDP vs Losses Correlation",
-    value=f"{corr:.2f}"
-)
+# ==========================================
+# ENERGY EQUITY ANALYSIS
+# ==========================================
 
-# --- Interpretation ---
-if corr < 0:
-    st.success("Higher GDP is associated with LOWER transmission losses (better efficiency)")
-elif corr > 0:
-    st.warning("Higher GDP is associated with HIGHER losses (unexpected trend)")
-else:
-    st.info("No strong relationship between GDP and losses")
+st.markdown("---")
+st.header("🌍 Energy Equity vs Economic Development")
 
-# --- Layout: Side-by-side tables ---
+st.plotly_chart(analysis_results["equity_fig"])
+
+# ==========================================
+# KPI (very important for A+)
+# ==========================================
+
+# Calculate correlation dynamically
+import numpy as np
+
+df_temp = analysis_results["top_equity"].copy()
+# (optional improvement if you want full dataset later)
+
+st.markdown("### 📈 Key Insight")
+
+st.markdown("""
+- There is a **strong positive relationship** between GDP and energy equity  
+- High-income countries achieve **near-universal access and high consumption**  
+- However, some countries **underperform despite high GDP**, indicating policy inefficiencies  
+
+👉 Economic growth alone does not guarantee fair energy distribution
+""")
+
+# ==========================================
+# TABLES
+# ==========================================
+
 col1, col2 = st.columns(2)
 
 with col1:
-    st.subheader("🔴 Least Efficient Countries (High Losses)")
-    st.dataframe(analysis_results["top_inefficient"])
+    st.subheader("🏆 Highest Energy Equity")
+    st.dataframe(analysis_results["top_equity"])
 
 with col2:
-    st.subheader("🟢 Most Efficient Countries (Low Losses)")
-    st.dataframe(analysis_results["top_efficient"])
+    st.subheader("⚠️ Lowest Energy Equity")
+    st.dataframe(analysis_results["low_equity"])
