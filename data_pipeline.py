@@ -22,8 +22,6 @@ logging.basicConfig(level=logging.INFO)
 os.environ["AWS_ACCESS_KEY_ID"] = "YOUR_KEY"
 os.environ["AWS_SECRET_ACCESS_KEY"] = "YOUR_SECRET"
 
-
-
 s3 = boto3.client(
     "s3",
     aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
@@ -183,6 +181,32 @@ df_pop.columns = ["country","year","population"]
 df_pop["iso3"] = df_pop["country"].apply(iso)
 
 # ==========================================
+# GDP (NEW ADDITION)
+# ==========================================
+print("\nLoading GDP...")
+
+gdp_url = "https://api.worldbank.org/v2/country/all/indicator/NY.GDP.PCAP.CD?format=json&per_page=20000"
+
+df_gdp = pd.DataFrame(requests.get(gdp_url).json()[1])
+
+# Use ISO directly (IMPORTANT)
+df_gdp["iso3"] = df_gdp["countryiso3code"]
+
+# Keep required columns
+df_gdp = df_gdp[["iso3", "date", "value"]]
+df_gdp.columns = ["iso3", "year", "gdp_per_capita"]
+
+# Remove aggregates (AFE, WLD etc.)
+df_gdp = df_gdp[df_gdp["iso3"].str.len() == 3]
+
+# Clean year
+df_gdp["year"] = pd.to_numeric(df_gdp["year"], errors="coerce")
+df_gdp = df_gdp.dropna(subset=["year", "gdp_per_capita"])
+df_gdp["year"] = df_gdp["year"].astype(int)
+
+print("GDP shape:", df_gdp.shape)
+
+# ==========================================
 # CLEAN
 # ==========================================
 def clean(df):
@@ -196,6 +220,7 @@ df_access = clean(df_access)
 df_pop = clean(df_pop)
 df_prod = clean(df_prod)
 df_renew = clean(df_renew)
+df_gdp = clean(df_gdp)
 
 df_elec = df_elec.dropna(subset=["iso3","electricity"])
 df_access = df_access.dropna(subset=["iso3","access"])
@@ -210,6 +235,7 @@ df_loss = df_loss[["iso3","year","losses"]]
 df_pop = df_pop[["iso3","year","population"]]
 df_prod = df_prod[["iso3","year","production"]]
 df_renew = df_renew[["iso3","year","renewable"]]
+df_gdp = df_gdp[["iso3","year","gdp_per_capita"]]
 
 # ==========================================
 # JOIN
@@ -219,7 +245,8 @@ print("\nJoining CORE datasets...")
 df = df_elec.merge(df_renew, on=["iso3","year"], how="inner") \
            .merge(df_access, on=["iso3","year"], how="inner") \
            .merge(df_prod, on=["iso3","year"], how="inner") \
-           .merge(df_pop, on=["iso3","year"], how="inner")
+           .merge(df_pop, on=["iso3","year"], how="inner") \
+           .merge(df_gdp, on=["iso3","year"], how="left")
 
 print("After core join:", df.shape)
 
