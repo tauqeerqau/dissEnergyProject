@@ -45,7 +45,7 @@ def load_data_from_s3():
 df = load_data_from_s3()
 
 # Convert numeric columns safely
-numeric_cols = ["production_per_capita", "electricity", "renewable", "losses", "access"]
+numeric_cols = ["production_per_capita", "electricity", "renewable", "losses", "access", "gdp_per_capita"]
 
 for col in numeric_cols:
     df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -194,6 +194,53 @@ top_low_losses = df_latest.sort_values(
 ]
 
 # ==========================================
+# ================= ANALYSIS 4 =============
+# GDP vs Energy Efficiency (Losses)
+# ==========================================
+
+# Remove rows where GDP or losses missing
+df_gdp = df_latest.dropna(subset=["gdp_per_capita", "losses"]).copy()
+
+# Optional: create GDP groups (A+ level)
+def gdp_group(x):
+    if x < 5000:
+        return "Low Income"
+    elif x < 20000:
+        return "Middle Income"
+    else:
+        return "High Income"
+
+df_gdp["gdp_group"] = df_gdp["gdp_per_capita"].apply(gdp_group)
+
+# Scatter plot
+fig_gdp_losses = px.scatter(
+    df_gdp,
+    x="gdp_per_capita",
+    y="losses",
+    color="gdp_group",
+    hover_name="country_name",
+    title="GDP per Capita vs Transmission Losses (Energy Efficiency)",
+    log_x=True   # 🔥 A+ upgrade
+)
+
+# Correlation (for report)
+gdp_loss_corr = df_gdp["gdp_per_capita"].corr(df_gdp["losses"])
+
+# Top inefficient countries (high losses)
+top_inefficient = df_gdp.sort_values(
+    "losses", ascending=False
+).head(10)[
+    ["country_name", "gdp_per_capita", "losses"]
+]
+
+# Top efficient countries (low losses)
+top_efficient = df_gdp.sort_values(
+    "losses", ascending=True
+).head(10)[
+    ["country_name", "gdp_per_capita", "losses"]
+]
+
+# ==========================================
 # EXPORT FOR STREAMLIT
 # ==========================================
 
@@ -209,5 +256,10 @@ analysis_results = {
     "loss_access_fig": fig_losses_access,
     "loss_consumption_fig": fig_losses_consumption,
     "top_high_losses": top_high_losses,
-    "top_low_losses": top_low_losses
+    "top_low_losses": top_low_losses,
+    
+    "gdp_losses_fig": fig_gdp_losses,
+    "gdp_loss_corr": gdp_loss_corr,
+    "top_inefficient": top_inefficient,
+    "top_efficient": top_efficient
 }

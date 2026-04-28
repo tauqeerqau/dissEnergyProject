@@ -100,3 +100,47 @@ with col4:
         analysis_results["top_low_losses"],
         use_container_width=True
     )
+    
+# ==========================================
+# 📊 ANALYSIS 4: GDP vs ENERGY EFFICIENCY
+# ==========================================
+
+st.header("📊 Economic Efficiency Analysis (GDP vs Losses)")
+
+st.markdown("""
+This analysis explores how a country's economic strength (GDP per capita) 
+relates to electricity transmission efficiency. Lower losses indicate better infrastructure.
+""")
+
+# --- Scatter Plot ---
+st.plotly_chart(
+    analysis_results["gdp_losses_fig"],
+    use_container_width=True
+)
+
+# --- Correlation Metric ---
+corr = analysis_results["gdp_loss_corr"]
+
+st.metric(
+    label="GDP vs Losses Correlation",
+    value=f"{corr:.2f}"
+)
+
+# --- Interpretation ---
+if corr < 0:
+    st.success("Higher GDP is associated with LOWER transmission losses (better efficiency)")
+elif corr > 0:
+    st.warning("Higher GDP is associated with HIGHER losses (unexpected trend)")
+else:
+    st.info("No strong relationship between GDP and losses")
+
+# --- Layout: Side-by-side tables ---
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("🔴 Least Efficient Countries (High Losses)")
+    st.dataframe(analysis_results["top_inefficient"])
+
+with col2:
+    st.subheader("🟢 Most Efficient Countries (Low Losses)")
+    st.dataframe(analysis_results["top_efficient"])

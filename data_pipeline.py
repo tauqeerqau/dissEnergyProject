@@ -22,6 +22,8 @@ logging.basicConfig(level=logging.INFO)
 os.environ["AWS_ACCESS_KEY_ID"] = "YOUR_KEY"
 os.environ["AWS_SECRET_ACCESS_KEY"] = "YOUR_SECRET"
 
+
+
 s3 = boto3.client(
     "s3",
     aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
