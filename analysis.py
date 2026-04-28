@@ -165,7 +165,7 @@ df_latest["sustainability_score"] = (
 
 top5_sustainable = df_latest.sort_values(
     "sustainability_score", ascending=False
-).head(5)[
+).head(10)[
     ["country_name", "renewable", "access", "losses", "sustainability_score"]
 ]
 
