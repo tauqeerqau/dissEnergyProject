@@ -7,14 +7,16 @@ import boto3
 import plotly.express as px
 import streamlit as st
 from io import StringIO
+from botocore.exceptions import ClientError
 
 # ==========================================
 # AWS CONFIG (UNCHANGED)
 # ==========================================
 
-AWS_ACCESS_KEY = st.secrets["AWS_ACCESS_KEY"]
-AWS_SECRET_KEY = st.secrets["AWS_SECRET_KEY"]
-REGION = st.secrets["AWS_REGION"]
+#AWS_ACCESS_KEY = st.secrets["AWS_ACCESS_KEY"]
+#AWS_SECRET_KEY = st.secrets["AWS_SECRET_KEY"]
+#REGION = st.secrets["AWS_REGION"]
+
 
 BUCKET_NAME = "energy-data-backup"
 FILE_KEY = "final/final_dataset.csv"
@@ -24,18 +26,33 @@ FILE_KEY = "final/final_dataset.csv"
 # ==========================================
 
 def load_data_from_s3():
-    s3 = boto3.client(
-        "s3",
-        aws_access_key_id=AWS_ACCESS_KEY,
-        aws_secret_access_key=AWS_SECRET_KEY,
-        region_name=REGION
-    )
+    try:
+        s3 = boto3.client(
+            "s3",
+            aws_access_key_id=AWS_ACCESS_KEY,
+            aws_secret_access_key=AWS_SECRET_KEY,
+            region_name=REGION
+        )
 
-    obj = s3.get_object(Bucket=BUCKET_NAME, Key=FILE_KEY)
-    data = obj["Body"].read().decode("utf-8")
+        obj = s3.get_object(Bucket=BUCKET_NAME, Key=FILE_KEY)
+        data = obj["Body"].read().decode("utf-8")
 
-    df = pd.read_csv(StringIO(data))
-    return df
+        df = pd.read_csv(StringIO(data))
+        return df
+
+    except ClientError as e:
+        error_code = e.response["Error"]["Code"]
+
+        if error_code == "NoSuchKey":
+            st.warning("⚠️ Data file not found in S3. Please try again later.")
+        else:
+            st.error(f"❌ AWS Error: {error_code}")
+
+        return None
+
+    except Exception as e:
+        st.error(f"❌ Unexpected error: {str(e)}")
+        return None
 
 
 # ==========================================
@@ -43,6 +60,9 @@ def load_data_from_s3():
 # ==========================================
 
 df = load_data_from_s3()
+if df is None:
+    st.info("📭 No data available at the moment. Please try again later.")
+    st.stop()
 
 # Convert numeric columns safely
 numeric_cols = ["production_per_capita", "electricity", "renewable", "losses", "access", "gdp_per_capita"]
