@@ -1,15 +1,32 @@
 import streamlit as st
-from analysis import analysis_results
+from analysis import run_analysis
 
 # ==========================================
 # PAGE CONFIG
 # ==========================================
-st.set_page_config(page_title="Energy Dashboard", layout="wide")
+st.set_page_config(
+    page_title="Energy Dashboard",
+    layout="wide"
+)
 
 # ==========================================
 # TITLE
 # ==========================================
 st.title("⚡ Global Energy Analysis Dashboard")
+
+# ==========================================
+# LOAD DATA (SAFE)
+# ==========================================
+with st.spinner("Loading data from S3..."):
+    analysis_results = run_analysis()
+
+# ------------------------------------------
+# HANDLE NO DATA (CRITICAL)
+# ------------------------------------------
+if analysis_results is None:
+    st.error("🚫 No data available right now")
+    st.caption("The dataset is temporarily unavailable or invalid. Please try again later.")
+    st.stop()
 
 # ==========================================
 # ANALYSIS 1
@@ -58,7 +75,7 @@ with col2:
         use_container_width=True
     )
 
-st.subheader("Top 5 Sustainable Countries")
+st.subheader("Top Sustainable Countries")
 st.dataframe(
     analysis_results["top_sustainable"],
     use_container_width=True
@@ -100,19 +117,28 @@ with col4:
         analysis_results["top_low_losses"],
         use_container_width=True
     )
-    
-# ==========================================
-# GDP ANALYSIS SECTION
-# ==========================================
 
+# ==========================================
+# GDP ANALYSIS
+# ==========================================
 st.header("📊 GDP vs Energy Efficiency")
 
 col1, col2 = st.columns(2)
 
-col1.metric("Avg GDP per Capita", f"${analysis_results['avg_gdp']:.0f}")
-col2.metric("Avg Transmission Losses", f"{analysis_results['avg_loss']:.2f}%")
+col1.metric(
+    "Avg GDP per Capita",
+    f"${analysis_results['avg_gdp']:.0f}"
+)
 
-st.plotly_chart(analysis_results["gdp_losses_fig"], use_container_width=True)
+col2.metric(
+    "Avg Transmission Losses",
+    f"{analysis_results['avg_loss']:.2f}%"
+)
+
+st.plotly_chart(
+    analysis_results["gdp_losses_fig"],
+    use_container_width=True
+)
 
 st.markdown(f"""
 **Correlation between GDP and Losses:**  
@@ -122,36 +148,31 @@ st.markdown(f"""
 """)
 
 st.subheader("🔻 Most Inefficient Countries")
-st.dataframe(analysis_results["top_inefficient"])
+st.dataframe(analysis_results["top_inefficient"], use_container_width=True)
 
 st.subheader("🔺 Most Efficient Countries")
-st.dataframe(analysis_results["top_efficient"])
+st.dataframe(analysis_results["top_efficient"], use_container_width=True)
 
 # ==========================================
-# ENERGY EQUITY ANALYSIS
+# ENERGY EQUITY
 # ==========================================
-
 st.markdown("---")
 st.header("🌍 Energy Equity vs Economic Development")
 
-st.plotly_chart(analysis_results["equity_fig"])
+st.plotly_chart(
+    analysis_results["equity_fig"],
+    use_container_width=True
+)
 
 # ==========================================
-# KPI (very important for A+)
+# KEY INSIGHT (A+ SECTION)
 # ==========================================
-
-# Calculate correlation dynamically
-import numpy as np
-
-df_temp = analysis_results["top_equity"].copy()
-# (optional improvement if you want full dataset later)
-
 st.markdown("### 📈 Key Insight")
 
 st.markdown("""
 - There is a **strong positive relationship** between GDP and energy equity  
 - High-income countries achieve **near-universal access and high consumption**  
-- However, some countries **underperform despite high GDP**, indicating policy inefficiencies  
+- Some countries **underperform despite high GDP**, indicating inefficiencies  
 
 👉 Economic growth alone does not guarantee fair energy distribution
 """)
@@ -159,13 +180,18 @@ st.markdown("""
 # ==========================================
 # TABLES
 # ==========================================
-
 col1, col2 = st.columns(2)
 
 with col1:
     st.subheader("🏆 Highest Energy Equity")
-    st.dataframe(analysis_results["top_equity"])
+    st.dataframe(
+        analysis_results["top_equity"],
+        use_container_width=True
+    )
 
 with col2:
     st.subheader("⚠️ Lowest Energy Equity")
-    st.dataframe(analysis_results["low_equity"])
+    st.dataframe(
+        analysis_results["low_equity"],
+        use_container_width=True
+    )
