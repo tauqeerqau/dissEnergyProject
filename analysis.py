@@ -1,5 +1,5 @@
 # ==========================================
-# analysis.py (FINAL PRODUCTION VERSION)
+# analysis.py (FINAL COMPLETE VERSION)
 # ==========================================
 
 import pandas as pd
@@ -7,14 +7,10 @@ import boto3
 import plotly.express as px
 import streamlit as st
 from io import StringIO
-from botocore.exceptions import ClientError
 
 # ==========================================
-# AWS CONFIG (KEEPING YOUR KEYS)
+# AWS CONFIG
 # ==========================================
-
-
-
 AWS_ACCESS_KEY = st.secrets["AWS_ACCESS_KEY"]
 AWS_SECRET_KEY = st.secrets["AWS_SECRET_KEY"]
 REGION = st.secrets["AWS_REGION"]
@@ -23,9 +19,8 @@ BUCKET_NAME = "energy-data-backup"
 FILE_KEY = "final/final_dataset.csv"
 
 # ==========================================
-# LOAD DATA FROM S3
+# LOAD DATA
 # ==========================================
-
 def load_data_from_s3():
     try:
         s3 = boto3.client(
@@ -34,247 +29,206 @@ def load_data_from_s3():
             aws_secret_access_key=AWS_SECRET_KEY,
             region_name=REGION
         )
-
         obj = s3.get_object(Bucket=BUCKET_NAME, Key=FILE_KEY)
         data = obj["Body"].read().decode("utf-8")
-
-        df = pd.read_csv(StringIO(data))
-        return df
-
-    except ClientError as e:
-        error_code = e.response["Error"]["Code"]
-
-        if error_code == "NoSuchKey":
-            st.warning("⚠️ Data file not found in S3. Please try again later.")
-        else:
-            st.error(f"❌ AWS Error: {error_code}")
-
-        return None
-
+        return pd.read_csv(StringIO(data))
     except Exception as e:
-        st.error(f"❌ Unexpected error: {str(e)}")
+        st.error(f"Error loading data: {str(e)}")
         return None
 
+# ==========================================
+# RANK FIX
+# ==========================================
+def add_rank(df):
+    df = df.reset_index(drop=True)
+    df.insert(0, "Rank", range(1, len(df) + 1))
+    return df
 
 # ==========================================
-# MAIN ANALYSIS FUNCTION
+# MAIN ANALYSIS
 # ==========================================
-
 def run_analysis():
 
     df = load_data_from_s3()
-
-    # ------------------------------------------
-    # HANDLE NO DATA
-    # ------------------------------------------
     if df is None or df.empty:
         return None
 
-    required_cols = [
-        "production_per_capita", "electricity",
-        "renewable", "losses", "access",
-        "gdp_per_capita", "year", "country_name"
+    # ==========================================
+    # RENAME
+    # ==========================================
+    df = df.rename(columns={
+        "country_name": "Country Name",
+        "production_per_capita": "Production Per Capita",
+        "electricity": "Electricity Consumption Per Capita",
+        "renewable": "Renewable Energy %",
+        "losses": "Transmission Losses %",
+        "access": "Electricity Access %",
+        "gdp_per_capita": "GDP Per Capita",
+        "year": "Year"
+    })
+
+    # ==========================================
+    # CLEAN
+    # ==========================================
+    num_cols = [
+        "Production Per Capita",
+        "Electricity Consumption Per Capita",
+        "Renewable Energy %",
+        "Transmission Losses %",
+        "Electricity Access %",
+        "GDP Per Capita"
     ]
 
-    missing_cols = [c for c in required_cols if c not in df.columns]
-
-    if missing_cols:
-        st.error(f"❌ Dataset is corrupted. Missing columns: {missing_cols}")
-        return None
-
-    # ------------------------------------------
-    # CLEANING
-    # ------------------------------------------
-    numeric_cols = [
-        "production_per_capita", "electricity",
-        "renewable", "losses", "access", "gdp_per_capita"
-    ]
-
-    for col in numeric_cols:
+    for col in num_cols:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    df["year"] = pd.to_numeric(df["year"], errors="coerce")
+    df["Year"] = pd.to_numeric(df["Year"], errors="coerce")
+    df = df.dropna(subset=["Year","Production Per Capita","Electricity Consumption Per Capita"])
+    df["Year"] = df["Year"].astype(int)
 
-    df = df.dropna(subset=[
-        "year",
-        "production_per_capita",
-        "electricity"
-    ])
+    df_latest = df[df["Year"] == df["Year"].max()].copy()
 
-    if df.empty:
-        st.warning("⚠️ Dataset contains no usable records.")
-        return None
+    # ==========================================
+    # CATEGORY COLORS
+    # ==========================================
+    category_colors = {"Low":"red","Medium":"orange","High":"green"}
 
-    df["year"] = df["year"].astype(int)
+    df_latest["Renewable Cat"] = pd.cut(df_latest["Renewable Energy %"], [0,30,70,100], labels=["Low","Medium","High"])
+    df_latest["Losses Cat"] = pd.cut(df_latest["Transmission Losses %"], [0,10,25,100], labels=["Low","Medium","High"])
+    df_latest["Access Cat"] = pd.cut(df_latest["Electricity Access %"], [0,50,90,100], labels=["Low","Medium","High"])
 
-    latest_year = int(df["year"].max())
-    df_latest = df[df["year"] == latest_year].copy()
-
-    if df_latest.empty:
-        st.warning("⚠️ No data available for latest year.")
-        return None
-
-    # ------------------------------------------
-    # ENERGY EQUITY
-    # ------------------------------------------
-    max_electricity = df_latest["electricity"].max()
-
-    if max_electricity == 0 or pd.isna(max_electricity):
-        st.warning("⚠️ Electricity data invalid.")
-        return None
-
-    df_latest["electricity_norm"] = (
-        df_latest["electricity"] / max_electricity
-    ) * 100
-
-    df_latest["energy_equity_score"] = (
-        df_latest["access"] * 0.6 +
-        df_latest["electricity_norm"] * 0.4
-    )
-
-    # ------------------------------------------
-    # ANALYSIS 1: ENERGY GAP
-    # ------------------------------------------
-    df_latest["energy_gap_per_capita"] = (
-        df_latest["production_per_capita"] - df_latest["electricity"]
-    )
-
-    df_latest["status"] = df_latest["energy_gap_per_capita"].apply(
-        lambda x: "Surplus" if x > 0 else "Deficit"
-    )
-
-    top_surplus = df_latest.sort_values(
-        "energy_gap_per_capita", ascending=False
-    ).head(10)
-
-    top_deficit = df_latest.sort_values(
-        "energy_gap_per_capita", ascending=True
-    ).head(10)
-
-    fig_energy_gap = px.scatter(
-        df_latest,
-        x="production_per_capita",
-        y="electricity",
-        color="status",
-        hover_name="country_name",
-        title="Energy Gap (Production vs Consumption)"
-    )
-
-    # ------------------------------------------
-    # ANALYSIS 2: RENEWABLE
-    # ------------------------------------------
-    fig_renewable_access = px.scatter(
-        df_latest,
-        x="renewable",
-        y="access",
-        hover_name="country_name",
-        title="Renewable vs Access"
-    )
-
-    fig_renewable_losses = px.scatter(
-        df_latest,
-        x="renewable",
-        y="losses",
-        hover_name="country_name",
-        title="Renewable vs Losses"
-    )
-
-    df_latest["sustainability_score"] = (
-        df_latest["renewable"] * 0.4 +
-        df_latest["access"] * 0.4 -
-        df_latest["losses"] * 0.2
-    )
-
-    top5_sustainable = df_latest.sort_values(
-        "sustainability_score", ascending=False
-    ).head(10)
-
-    # ------------------------------------------
-    # ANALYSIS 3: LOSSES
-    # ------------------------------------------
-    fig_losses_access = px.scatter(
-        df_latest,
-        x="losses",
-        y="access",
-        hover_name="country_name"
-    )
-
-    fig_losses_consumption = px.scatter(
-        df_latest,
-        x="losses",
-        y="electricity",
-        hover_name="country_name"
-    )
-
-    top_high_losses = df_latest.sort_values("losses", ascending=False).head(10)
-    top_low_losses = df_latest.sort_values("losses", ascending=True).head(10)
-
-    # ------------------------------------------
-    # GDP ANALYSIS
-    # ------------------------------------------
-    df_gdp = df_latest.dropna(subset=["gdp_per_capita", "losses"]).copy()
-
-    if df_gdp.empty:
-        st.warning("⚠️ GDP data not available.")
-        return None
+    # ==========================================
+    # GDP ANALYSIS (Analysis 1)
+    # ==========================================
+    df_gdp = df_latest.dropna(subset=["GDP Per Capita","Transmission Losses %"])
 
     fig_gdp_losses = px.scatter(
         df_gdp,
-        x="gdp_per_capita",
-        y="losses",
-        hover_name="country_name",
-        trendline="ols",
-        title="GDP vs Transmission Losses"
+        x="GDP Per Capita",
+        y="Transmission Losses %",
+        color="Losses Cat",
+        color_discrete_map=category_colors,
+        hover_name="Country Name"
     )
 
-    gdp_loss_corr = df_gdp["gdp_per_capita"].corr(df_gdp["losses"])
-    avg_loss = df_gdp["losses"].mean()
-    avg_gdp = df_gdp["gdp_per_capita"].mean()
+    avg_gdp = df_gdp["GDP Per Capita"].mean()
+    avg_loss = df_gdp["Transmission Losses %"].mean()
+    gdp_loss_corr = df_gdp["GDP Per Capita"].corr(df_gdp["Transmission Losses %"])
 
-    top_inefficient = df_gdp.sort_values("losses", ascending=False).head(10)
-    top_efficient = df_gdp.sort_values("losses", ascending=True).head(10)
+    top_inefficient = add_rank(df_gdp.sort_values("Transmission Losses %", ascending=False)[
+        ["Country Name","GDP Per Capita","Transmission Losses %"]
+    ].head(10))
 
-    # ------------------------------------------
-    # ENERGY EQUITY
-    # ------------------------------------------
-    df_equity = df_latest.dropna(subset=["gdp_per_capita", "energy_equity_score"])
+    top_efficient = add_rank(df_gdp.sort_values("Transmission Losses %")[
+        ["Country Name","GDP Per Capita","Transmission Losses %"]
+    ].head(10))
 
-    fig_equity = px.scatter(
-        df_equity,
-        x="gdp_per_capita",
-        y="energy_equity_score",
-        hover_name="country_name",
-        trendline="ols",
-        title="GDP vs Energy Equity"
+    # ==========================================
+    # ENERGY GAP (Analysis 2)
+    # ==========================================
+    df_latest["Energy Gap"] = df_latest["Production Per Capita"] - df_latest["Electricity Consumption Per Capita"]
+    df_latest["Status"] = df_latest["Energy Gap"].apply(lambda x: "Surplus" if x > 0 else "Deficit")
+
+    fig_energy_gap = px.scatter(
+        df_latest,
+        x="Production Per Capita",
+        y="Electricity Consumption Per Capita",
+        color="Status",
+        color_discrete_map={"Surplus":"green","Deficit":"red"},
+        hover_name="Country Name"
     )
 
-    top_equity = df_equity.sort_values("energy_equity_score", ascending=False).head(10)
-    low_equity = df_equity.sort_values("energy_equity_score", ascending=True).head(10)
+    top_surplus = add_rank(df_latest.sort_values("Energy Gap", ascending=False)[
+        ["Country Name","Production Per Capita","Electricity Consumption Per Capita","Energy Gap"]
+    ].head(10))
 
-    # ------------------------------------------
+    top_deficit = add_rank(df_latest.sort_values("Energy Gap")[
+        ["Country Name","Production Per Capita","Electricity Consumption Per Capita","Energy Gap"]
+    ].head(10))
+
+    # ==========================================
+    # RENEWABLE (Analysis 3)
+    # ==========================================
+    fig_renewable_access = px.scatter(
+        df_latest, x="Renewable Energy %", y="Electricity Access %",
+        color="Renewable Cat", color_discrete_map=category_colors
+    )
+
+    fig_renewable_losses = px.scatter(
+        df_latest, x="Renewable Energy %", y="Transmission Losses %",
+        color="Renewable Cat", color_discrete_map=category_colors
+    )
+
+    df_latest["Sustainability Score"] = (
+        df_latest["Renewable Energy %"]*0.4 +
+        df_latest["Electricity Access %"]*0.4 -
+        df_latest["Transmission Losses %"]*0.2
+    )
+
+    top_sustainable = add_rank(df_latest.sort_values("Sustainability Score", ascending=False)[
+        ["Country Name","Renewable Energy %","Electricity Access %","Transmission Losses %","Sustainability Score"]
+    ].head(10))
+
+    # ==========================================
+    # LOSSES (Analysis 4)
+    # ==========================================
+    fig_losses_access = px.scatter(df_latest, x="Transmission Losses %", y="Electricity Access %",
+                                  color="Losses Cat", color_discrete_map=category_colors)
+
+    fig_losses_consumption = px.scatter(df_latest, x="Transmission Losses %", y="Electricity Consumption Per Capita",
+                                       color="Losses Cat", color_discrete_map=category_colors)
+
+    top_high_losses = add_rank(df_latest.sort_values("Transmission Losses %", ascending=False)[
+        ["Country Name","Transmission Losses %","Electricity Consumption Per Capita"]
+    ].head(10))
+
+    top_low_losses = add_rank(df_latest.sort_values("Transmission Losses %")[
+        ["Country Name","Transmission Losses %","Electricity Consumption Per Capita"]
+    ].head(10))
+
+    # ==========================================
+    # EQUITY (Analysis 5)
+    # ==========================================
+    df_latest["Electricity Norm"] = (df_latest["Electricity Consumption Per Capita"] / df_latest["Electricity Consumption Per Capita"].max())*100
+    df_latest["Energy Equity Score"] = df_latest["Electricity Access %"]*0.6 + df_latest["Electricity Norm"]*0.4
+
+    df_eq = df_latest.dropna(subset=["GDP Per Capita","Energy Equity Score"])
+
+    fig_equity = px.scatter(df_eq, x="GDP Per Capita", y="Energy Equity Score",
+                            color="Access Cat", color_discrete_map=category_colors)
+
+    top_equity = add_rank(df_eq.sort_values("Energy Equity Score", ascending=False)[
+        ["Country Name","GDP Per Capita","Energy Equity Score"]
+    ].head(10))
+
+    low_equity = add_rank(df_eq.sort_values("Energy Equity Score")[
+        ["Country Name","GDP Per Capita","Energy Equity Score"]
+    ].head(10))
+
+    # ==========================================
     # RETURN
-    # ------------------------------------------
+    # ==========================================
     return {
+        "avg_gdp": avg_gdp,
+        "avg_loss": avg_loss,
+        "gdp_loss_corr": gdp_loss_corr,
+        "gdp_losses_fig": fig_gdp_losses,
+        "top_inefficient": top_inefficient,
+        "top_efficient": top_efficient,
+
         "energy_gap_fig": fig_energy_gap,
         "top_surplus": top_surplus,
         "top_deficit": top_deficit,
 
         "renewable_access_fig": fig_renewable_access,
         "renewable_losses_fig": fig_renewable_losses,
-        "top_sustainable": top5_sustainable,
+        "top_sustainable": top_sustainable,
 
         "loss_access_fig": fig_losses_access,
         "loss_consumption_fig": fig_losses_consumption,
         "top_high_losses": top_high_losses,
         "top_low_losses": top_low_losses,
-        
-        "gdp_losses_fig": fig_gdp_losses,
-        "gdp_loss_corr": gdp_loss_corr,
-        "avg_loss": avg_loss,
-        "avg_gdp": avg_gdp,
-        "top_inefficient": top_inefficient,
-        "top_efficient": top_efficient,
-        
+
         "equity_fig": fig_equity,
         "top_equity": top_equity,
         "low_equity": low_equity
